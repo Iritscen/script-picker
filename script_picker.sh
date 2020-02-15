@@ -3,13 +3,14 @@
 # ScriptPicker
 # An interactive menu for quickly finding and setting up an invocation for one of the Unix scripts
 # found in a specified directory. A table of available scripts and information about them is built
-# from the specified "README" file in the same directory, and then the names of the scripts are
-# checked against the file names in README to ensure agreement. A menu is then offered for
+# from the specified read-me file in the same directory, and then the names of the scripts are
+# checked against the file names in the read-me to ensure agreement. A menu is then offered for
 # browsing the scripts by category. When a script is chosen, the invocation of said script is
-# conveniently set up on the command line.
-# Parameter 1: Directory with scripts.
-# Parameter 2: Name of Markdown-formatted file in same directory which contains metadata on the
-# scripts. Following is the format required for the file, modeled after the README.md that I use
+# conveniently started for you on the command line.
+#
+# You pass the script one or more paths. Each path should point to a read-me inside a folder of
+# scripts. The read-me is a Markdown-formatted file which contains metadata on the scripts beside
+# it. Following is the format required for the file, modeled after the README.md that I use
 # for my GitHub account's "Small scripts" repository (the surrounding box is a visual aid, not
 # part of the file):
 #
@@ -46,12 +47,10 @@ IFS="
 shopt -s nocasematch
 
 ## VARIABLES ##
-# Mode: 0 = off, 1 = print script table parsed from README and then quit
+# Mode: 0 = normal operation, 1 = print script table parsed from read-me and then quit
 DEBUG_MODE=0
 
 # Constants
-SCRIPT_PATH="$1"
-README_PATH="$SCRIPT_PATH/$2"
 ESCAPE_CHAR=$(printf "\x1b")
 ENTER_CHAR=$(printf "\x0a")
 PARAM_SPACE=" "
@@ -62,9 +61,9 @@ declare -a CAT_NAMES=()
 NUM_CATS=0
 declare -a NUM_SCRS=()
 
-# Declare parallel arrays for holding a table of info about my scripts, read in from README. None
-# of my scripts currently have more than 5 parameters, but if one does someday, this script will
-# warn me when it builds the table.
+# Declare parallel arrays for holding a table of info about my scripts, read in from read-me. None
+# of my scripts currently have more than 5 parameters, but if a script is encountered which does,
+# this script will warn the user when it builds the table.
 declare -a SCR_CATS=()
 declare -a SCR_NAMES=()
 declare -a SCR_FILES=()
@@ -84,41 +83,50 @@ INPUT_MORE_BYTES=""
 MENU_DONE=0
 QUIT_SCRIPT=0
 
-## SAFETY CHECKS ##
-if [ ! -d $SCRIPT_PATH ]; then
-   echo "Did not find a directory at $SCRIPT_PATH. Is SCRIPT_PATH set correctly? Exiting."
-   exit
-fi
+## ARGUMENT PROCESSING ##
+declare -a README_PATHS=()
+while (( "$#" )); do
+   if [ ! -d "$(dirname $1)" ]; then
+      echo "Did not find a directory at '$(dirname $1)'. Is that really where your scripts are? Exiting."
+      exit
+   fi
 
-if [ ! -f $README_PATH ]; then
-   echo "Did not find a file at path $README_PATH. Is README_PATH set correctly? Exiting."
-   exit
-fi
+   if [ ! -f "$1" ]; then
+      echo "Did not find a file at path '$1'. Is that really where your script listing is? Exiting."
+      exit
+   fi
+
+   README_PATHS+=("$1")
+   shift
+done
 
 ## FUNCTIONS ##
-# Build script table by parsing README
+# Build script table by parsing read-me at the path that's passed in
 function collectScripts()
 {
+   README_PATH="$1"
+   PASSED_CONTENTS=0
    READING_IN=""
 
    for THE_LINE in `cat "$README_PATH"`; do
       # If this is a category line, read it in. Skip past the first "##" line, which is the table
       # of contents
       if [[ $THE_LINE =~ ^"## " ]]; then
-         let NUM_CATS+=1
-         if [ $NUM_CATS -gt 1 ]; then
-            CAT_NAMES+=("${THE_LINE//## /}")
-            NUM_SCRS[$((NUM_CATS - 2))]=0
-         else
+         if [ $PASSED_CONTENTS -eq 0 ]; then
+            PASSED_CONTENTS=1
             continue
+         else
+            let NUM_CATS+=1
+            CAT_NAMES+=("${THE_LINE//## /}")
+            NUM_SCRS[$((NUM_CATS - 1))]=0
          fi
       fi
 
       # If we found the start of a script listing, record what category it's under, then record
       # script name and file name
       if [[ $THE_LINE =~ ^"### " ]]; then
-         SCR_CATS+=($((NUM_CATS - 2)))
-         let NUM_SCRS[$((NUM_CATS - 2))]+=1
+         SCR_CATS+=($((NUM_CATS - 1)))
+         let NUM_SCRS[$((NUM_CATS - 1))]+=1
          SCR_NAME=$(echo "$THE_LINE" | sed 's/### \[//' | sed 's/\].*//')
          SCR_NAMES+=($SCR_NAME)
          SCR_FILE=$(echo "$THE_LINE" | sed 's/.*(//' | sed 's/)//')
@@ -131,7 +139,7 @@ function collectScripts()
       if [ "$READING_IN" == "param1" ]; then
          if [[ ! $THE_LINE =~ "<!--" ]]; then
             echo "Did not find start of parameter listing where it was expected! Line was '$THE_LINE'"
-            break
+            exit
          fi
       
          SCR_PARAM=$(echo "$THE_LINE" | sed 's/<!--//' | sed 's/-->//')
@@ -202,8 +210,8 @@ function collectScripts()
          if [[ $THE_LINE =~ "-->" ]]; then
             READING_IN="desc"
          else
-            echo "Too many parameters encountered!"
-            break
+            echo "Too many parameters encountered for script $SCR_NAME!"
+            exit
          fi
          continue
       fi
@@ -216,19 +224,30 @@ function collectScripts()
    done
 }
 
-# Checks the file names collected from README against the actual scripts in the directory to make
+# Checks file names collected from read-me against the actual scripts in the directory to make
 # sure that there are no discrepancies
 function compareTableToDir()
 {
    README_WARN=0
    DIR_WARN=0
 
-   # Check README for scripts that don't exist
+   # Check read-me for scripts that don't exist
    a=0
    while [ "x${SCR_FILES[$a]}" != "x" ]; do # if this evaluates to "x", the array is done
-      if [ ! -f "$SCRIPT_PATH/${SCR_FILES[$a]}" ]; then
+      # Look in each script directory
+      b=0
+      FOUND=0
+      while [ "x${README_PATHS[$b]}" != "x" ]; do
+         SCRIPT_DIR="$(dirname ${README_PATHS[$b]})"
+         if [ -f "$SCRIPT_DIR/${SCR_FILES[$a]}" ]; then
+            FOUND=1
+            break
+         fi
+         let b+=1
+      done
+      if [ $FOUND -eq 0 ]; then
          if [ $README_WARN == 0 ]; then
-            echo "Present in README but missing from script directory:"
+            echo "Present in read-me but missing from script directory:"
             README_WARN=1
          fi
          echo ${SCR_FILES[$a]}
@@ -236,15 +255,27 @@ function compareTableToDir()
       let a+=1
    done
 
-   # Check script dir. for scripts not listed in README
+   # Check script dir. for scripts not listed in read-me
    a=0
-   for THE_SCRIPT in `find "$SCRIPT_PATH" -maxdepth 1 | grep .sh$`; do
+   for THE_SCRIPT in `find "$SCRIPT_DIR" -maxdepth 1 | grep .sh$`; do
       SCR_NAME=$(echo "$THE_SCRIPT" | sed 's/.*\///') # clip file name from whole path
-      RESULT=`cat "$README_PATH" | grep --max-count=1 "$SCR_NAME"`
-      RESULT_CHARS=`echo -n "$RESULT" | wc -c`
-      if [ "$RESULT_CHARS" -lt 2 ]; then
+
+      # Look in each read-me
+      b=0
+      FOUND=0
+      while [ "x${README_PATHS[$b]}" != "x" ]; do
+         README_PATH="${README_PATHS[$b]}"
+         RESULT=`cat "$README_PATH" | grep --max-count=1 "$SCR_NAME"`
+         RESULT_CHARS=`echo -n "$RESULT" | wc -c`
+         if [ "$RESULT_CHARS" -ge 2 ]; then
+            FOUND=1
+            break
+         fi
+         let b+=1
+      done
+      if [ $FOUND -eq 0 ]; then
          if [ $DIR_WARN -eq 0 ]; then
-            echo "Present in script directory but missing from README:"
+            echo "Present in script directory but missing from read-me:"
             DIR_WARN=1
          fi
          echo $SCR_NAME
@@ -261,22 +292,28 @@ function compareTableToDir()
 # parameters exist for the function
 function printParams()
 {
+   # Set up one or two space characters depending on what was requested for alignment purposes
+   PCS=" "
+   if [ $2 -eq 1 ]; then
+      PCS="  "
+   fi
+
    if [ ${SCR_PARAMS1[$1]} == "(none)" ]; then
       echo "This script has no parameters."
       PARAM_SPACE=""
    else
-      echo "Param 1:  ${SCR_PARAMS1[$1]}" | fmt -w $COLS
+      echo "Param 1:${PCS}${SCR_PARAMS1[$1]}" | fmt -w $COLS
       if [ ! -z ${SCR_PARAMS2[$1]} ]; then
-         echo "Param 2:  ${SCR_PARAMS2[$1]}" | fmt -w $COLS
+         echo "Param 2:${PCS}${SCR_PARAMS2[$1]}" | fmt -w $COLS
       fi
       if [ ! -z ${SCR_PARAMS3[$1]} ]; then
-         echo "Param 3:  ${SCR_PARAMS3[$1]}" | fmt -w $COLS
+         echo "Param 3:${PCS}${SCR_PARAMS3[$1]}" | fmt -w $COLS
       fi
       if [ ! -z ${SCR_PARAMS4[$1]} ]; then
-         echo "Param 4:  ${SCR_PARAMS4[$1]}" | fmt -w $COLS
+         echo "Param 4:${PCS}${SCR_PARAMS4[$1]}" | fmt -w $COLS
       fi
       if [ ! -z ${SCR_PARAMS5[$1]} ]; then
-         echo "Param 5:  ${SCR_PARAMS5[$1]}" | fmt -w $COLS
+         echo "Param 5:${PCS}${SCR_PARAMS5[$1]}" | fmt -w $COLS
       fi
    fi
 }
@@ -299,18 +336,17 @@ function printScripts()
       echo "Category: ${CAT_NAMES[${SCR_CATS[$a]}]}"
       echo "Name:     ${SCR_NAMES[$a]}"
       echo "File:     ${SCR_FILES[$a]}"
-      printParams $a
+      printParams $a 1
       echo "Descrip:  ${SCR_DESCS[$a]}" | fmt -w $COLS
       echo
       let a+=1
    done
 }
 
-# Draws title of script centered on screen
+# Draws title of script and user instructions
 function drawMenuTitle()
 {
-
-   echo "--ScriptPicker--" | fmt -w $COLS -c
+   echo "--ScriptPicker--" | fmt -w $COLS -c # centered text
    echo "Select a $1 by using the arrow keys or A-Z and choose it with Enter, or press spacebar to quit:" | fmt -w $COLS
 }
 
@@ -412,7 +448,11 @@ end run' $1
 
 ## PROGRAM START ##
 # Create table of scripts and count categories
-collectScripts
+a=0
+while [ "x${README_PATHS[$a]}" != "x" ]; do
+   collectScripts ${README_PATHS[$a]}
+   let a+=1
+done
 
 # If we're in debug mode, just print the table we built and quit
 if [ $DEBUG_MODE -eq 1 ]; then
@@ -420,7 +460,7 @@ if [ $DEBUG_MODE -eq 1 ]; then
    exit 0
 fi
 
-# Reconcile README to directory and quit if there's a problem
+# Reconcile read-me to directory and quit if there's a problem
 compareTableToDir
 if [ $QUIT_SCRIPT -eq 1 ]; then
    exit
@@ -431,7 +471,7 @@ while [ $MENU_DONE -ne 1 ] && [ $QUIT_SCRIPT -ne 1 ]; do
    clear
    drawMenuTitle category
    drawMenuBody
-   handleMenuInput category 0 0 $((NUM_CATS - 2))
+   handleMenuInput category 0 0 $((NUM_CATS - 1))
 done
 
 # Quit if user desires
@@ -472,7 +512,7 @@ fi
 
 # Send keystrokes containing chosen script to command line as script ends
 clear
-echo "Script:   ${SCR_NAMES[${CUR_CHOICE[1]}]}."
-printParams ${CUR_CHOICE[1]}
+echo "Script:  ${SCR_NAMES[${CUR_CHOICE[1]}]}."
+printParams ${CUR_CHOICE[1]} 0
 typeScriptCall "${SCR_FILES[${CUR_CHOICE[1]}]}$PARAM_SPACE" &
 shopt -u nocasematch
