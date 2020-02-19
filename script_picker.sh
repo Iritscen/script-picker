@@ -47,7 +47,8 @@ IFS="
 shopt -s nocasematch
 
 ## VARIABLES ##
-# Mode: 0 = normal operation, 1 = print script table parsed from read-me and then quit
+# Mode: 0 = normal operation, 1 = print script table parsed from read-me and then quit, 2 =
+# perform reconciliation of script dir. to read-me and then quit
 DEBUG_MODE=0
 
 # Constants
@@ -231,7 +232,7 @@ function compareTableToDir()
    README_WARN=0
    DIR_WARN=0
 
-   # Check read-me for scripts that don't exist
+   # Check for scripts listed in read-me that don't exist
    a=0
    while [ "x${SCR_FILES[$a]}" != "x" ]; do # if this evaluates to "x", the array is done
       # Look in each script directory
@@ -239,6 +240,7 @@ function compareTableToDir()
       FOUND=0
       while [ "x${README_PATHS[$b]}" != "x" ]; do
          SCRIPT_DIR="$(dirname ${README_PATHS[$b]})"
+         #echo "Looking for read-me's $(basename $SCRIPT_DIR/${SCR_FILES[$a]}) on disk..."
          if [ -f "$SCRIPT_DIR/${SCR_FILES[$a]}" ]; then
             FOUND=1
             break
@@ -255,31 +257,34 @@ function compareTableToDir()
       let a+=1
    done
 
-   # Check script dir. for scripts not listed in read-me
+   # Check for scripts in script dir.s that aren't listed in read-me
    a=0
-   for THE_SCRIPT in `find "$SCRIPT_DIR" -maxdepth 1 | grep .sh$`; do
-      SCR_NAME=$(echo "$THE_SCRIPT" | sed 's/.*\///') # clip file name from whole path
-
-      # Look in each read-me
-      b=0
-      FOUND=0
-      while [ "x${README_PATHS[$b]}" != "x" ]; do
-         README_PATH="${README_PATHS[$b]}"
-         RESULT=`cat "$README_PATH" | grep --max-count=1 "$SCR_NAME"`
-         RESULT_CHARS=`echo -n "$RESULT" | wc -c`
-         if [ "$RESULT_CHARS" -ge 2 ]; then
-            FOUND=1
-            break
+   while [ "x${README_PATHS[$a]}" != "x" ]; do
+      SCRIPT_DIR="$(dirname ${README_PATHS[$a]})"
+      for THE_SCRIPT in `find "$SCRIPT_DIR" -maxdepth 1 | grep .sh$`; do
+         SCR_NAME=$(echo "$THE_SCRIPT" | sed 's/.*\///') # clip file name from whole path
+         # Look in each read-me
+         b=0
+         FOUND=0
+         while [ "x${README_PATHS[$b]}" != "x" ]; do
+            #echo "Looking for $(basename $THE_SCRIPT) in read-me $README_PATH..."
+            README_PATH="${README_PATHS[$b]}"
+            RESULT=`cat "$README_PATH" | grep --max-count=1 "$SCR_NAME"`
+            RESULT_CHARS=`echo -n "$RESULT" | wc -c`
+            if [ "$RESULT_CHARS" -ge 2 ]; then
+               FOUND=1
+               break
+            fi
+            let b+=1
+         done
+         if [ $FOUND -eq 0 ]; then
+            if [ $DIR_WARN -eq 0 ]; then
+               echo "Present in script directory but missing from read-me:"
+               DIR_WARN=1
+            fi
+            echo $SCR_NAME
          fi
-         let b+=1
       done
-      if [ $FOUND -eq 0 ]; then
-         if [ $DIR_WARN -eq 0 ]; then
-            echo "Present in script directory but missing from read-me:"
-            DIR_WARN=1
-         fi
-         echo $SCR_NAME
-      fi
       let a+=1
    done
 
@@ -454,7 +459,7 @@ while [ "x${README_PATHS[$a]}" != "x" ]; do
    let a+=1
 done
 
-# If we're in debug mode, just print the table we built and quit
+# If we're in debug mode 1, print the table we built and quit
 if [ $DEBUG_MODE -eq 1 ]; then
    printScripts
    exit 0
@@ -464,6 +469,11 @@ fi
 compareTableToDir
 if [ $QUIT_SCRIPT -eq 1 ]; then
    exit
+fi
+
+# If we're in debug mode 2, quit now
+if [ $DEBUG_MODE -eq 2 ]; then
+   exit 0
 fi
 
 # Present category menu
