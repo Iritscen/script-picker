@@ -3,12 +3,12 @@ An interactive menu for quickly finding and setting up an invocation for one of 
 
 For information on how to format the read-me, see the comment header in the script. The file "[README](https://github.com/Iritscen/small-scripts/blob/master/Bash/README.md)" in my "Bash/Small scripts" repository is an example of such a read-me. When you run this script and it successfully confirms that the list of scripts in the read-me matches the files in the directory, the first thing you'll see is the menu. After choosing a category, you can pick a script in that category:
 
-![Menu](https://github.com/Iritscen/script-picker/blob/master/Menu.jpg)
+![Menu](https://github.com/Iritscen/script-picker/blob/master/preview1.jpg)
 
 
 After choosing a script, you are returned to the command prompt and the invocation of the script is typed into Terminal via AppleScript:
 
-![Invocation](https://github.com/Iritscen/script-picker/blob/master/Invocation.jpg)
+![Invocation](https://github.com/Iritscen/script-picker/blob/master/preview2.jpg)
 
 
 Note that this script is "me-ware" and is designed for my own usage, so it outputs "rb ___.sh", which is referring to an alias I have on my command line that is basically equivalent to "cd script_directory;bash ___.sh". You'll obviously need to customize that part for your own environment.
